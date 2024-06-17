@@ -1,0 +1,9 @@
+[package]
+name = "oh-queue"
+version = "0.1.0"
+authors = ["Sid <ssabhnani@utexas.edu>"]
+edition = "2021"
+
+[dependencies]
+actix-web = "4.7.0"
+serde = { version = "1.0.203", features = ["derive"] }
