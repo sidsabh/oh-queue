@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Join Queue</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <form action="/api/join" method="post">
+        <input type="text" name="name" placeholder="Your Name" required>
+        <input type="text" name="csid" placeholder="Your CS ID" required>
+        <select name="purpose" required>
+            <option value="ConceptualMaterial">Conceptual Material</option>
+            <option value="ConceptualLab">Conceptual Lab</option>
+            <option value="Debugging">Debugging</option>
+            <option value="Other">Other</option>
+        </select>
+        <textarea name="details" placeholder="Details" required></textarea>
+        <textarea name="steps" placeholder="Steps Taken" required></textarea>
+        <button type="submit">Join Queue</button>
+    </form>
+</body>
+</html>
