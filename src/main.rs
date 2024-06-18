@@ -4,7 +4,7 @@ use actix_files as fs;
 use actix_web::{web, App, HttpResponse, HttpServer};
 use util::*;
 
-const ADDRESS: &str = "localhost:3000";
+const ADDRESS: &str = "0.0.0.0:3000";
 
 // TODO: add a terminal ui to start the server so the TA can customize their office hours details etc and post to the HTTP
 
@@ -43,7 +43,7 @@ async fn main() {
             .route("/api/position", web::get().to(get_position)) // Changed to GET to match typical RESTful semantics
     });
 
-    println!("Serving on {}...", ADDRESS);
+    println!("Serving on {}", ADDRESS);
     server
         .bind(ADDRESS)
         .expect("error binding server to address")
