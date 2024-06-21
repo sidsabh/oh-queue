@@ -9,6 +9,7 @@
         <input type="text" name="name" placeholder="Your Name" required>
         <input type="text" name="csid" placeholder="Your CS ID" required>
         <select name="purpose" required>
+            <option disabled selected value> -- select an option -- </option>
             <option value="ConceptualMaterial">Conceptual Material</option>
             <option value="ConceptualLab">Conceptual Lab</option>
             <option value="Debugging">Debugging</option>
@@ -19,4 +20,24 @@
         <button type="submit">Join Queue</button>
     </form>
 </body>
+<script>
+    const form = document.querySelector('form');
+    const inputs = form.querySelectorAll('input, select, textarea');
+    inputs.forEach(input => {
+        const key = input.name;
+        const value = localStorage.getItem(key);
+        if (value) {
+            input.value = value;
+        }
+        input.addEventListener('input', () => {
+            localStorage.setItem(key, input.value);
+        });
+    });
+    // Clear the local storage when the form is submitted
+    // form.addEventListener('submit', () => {
+    //     inputs.forEach(input => {
+    //         localStorage.removeItem(input.name);
+    //     });
+    // });
+</script>
 </html>

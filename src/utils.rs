@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Purpose {
     ConceptualMaterial,
     ConceptualLab,
@@ -20,7 +20,7 @@ impl Purpose {
     }
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StudentInfo {
     pub name: String,
     pub csid: String,
@@ -41,7 +41,7 @@ impl StudentInfo {
     }
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct StudentRequest {
     pub info : StudentInfo,
     pub id: String,
