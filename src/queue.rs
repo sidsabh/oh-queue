@@ -1,3 +1,4 @@
+use crossterm::queue;
 use serde::{Serialize, Deserialize};
 use serde_json;
 use std::fs::{read_to_string, File};
@@ -120,10 +121,19 @@ impl Queue {
         } else {
             let mut path = dirs::home_dir().expect("Could not find home directory");
             path.push("queue.json");
-            let queue = Queue::new(path);
-            queue.save()?;
+            
+            let queue = if !path.exists() {
+                Queue::new(path.clone())
+            } else {
+                Queue::load(path.clone()).expect("Failed to load queue")
+            };
+            queue.save().expect("Failed to save queue");
             Ok(queue)
         }
+    }
+
+    pub fn size(&self) -> usize {
+        self.students.len()
     }
 }
 

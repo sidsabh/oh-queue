@@ -2,11 +2,10 @@ use actix_files as fs;
 
 use crate::queue::*;
 use actix_web::{web, App, HttpResponse, HttpServer};
-use actix_web::dev;
 use std::fs::OpenOptions;
 use std::io::Write;
+use log::info;
 use std::sync::{Arc, Mutex};
-use tokio::select;
 
 pub enum ServerControlMessage {
     Start,
@@ -15,14 +14,15 @@ pub enum ServerControlMessage {
 const ADDRESS: &str = "0.0.0.0";
 use std::io;
 /// This function starts the server and defines the routes for the web application.
-use tokio::sync::{oneshot, mpsc};
+use tokio::sync::mpsc;
 pub async fn http_server(
     queue_ref: Arc<Mutex<Queue>>,
     mut rx: mpsc::Receiver<ServerControlMessage>,
 ) -> io::Result<()> {
-    let mut server_handle: Option<oneshot::Sender<()>> = None;
+    let mut server_handle: Option<actix_web::dev::ServerHandle> = None;
 
-    while let Some(msg) = rx.recv().await {  // Make sure to await here!
+    while let Some(msg) = rx.recv().await {
+        // Make sure to await here!
         match msg {
             ServerControlMessage::Start => {
                 if server_handle.is_none() {
@@ -76,31 +76,23 @@ pub async fn http_server(
                         });
 
                         match server
+                            .shutdown_timeout(1)
                             .bind(format!("{}:{}", ADDRESS, port))
                             .map(|s| s.run())
                         {
                             Ok(server) => {
+                                server_handle = Some(actix_web::dev::Server::handle(&server));
                                 log_server_details(port).expect("Failed to log server details");
-                                println!("Serving on {}:{}", ADDRESS, port);
-                                let (tx_stop, rx_stop) = oneshot::channel();
-                                server_handle = Some(tx_stop);
+                                info!("Serving on {}:{}", ADDRESS, port);
 
                                 tokio::spawn(async move {
-                                    select! {
-                                        _ = server => {
-
-                                        },
-                                        _ = rx_stop => {
-                                        },
-                                    }
+                                    server.await.expect("Server failed");
                                 });
                                 break;
                             }
                             Err(_) => port += 1, // Increment the port if binding fails
                         }
                     }
-
-                    print!("Server is running on port {}", port);
 
                     if server_handle.is_none() {
                         return Err(io::Error::new(
@@ -109,12 +101,15 @@ pub async fn http_server(
                         ));
                     }
                 } else {
-                    println!("Server is already running.");
+                    info!("Server is already running.");
                 }
             }
             ServerControlMessage::Stop => {
-                if let Some(stop_tx) = server_handle.take() {
-                    let _ = stop_tx.send(());
+                if let Some(handler) = server_handle.take() {
+                    handler.stop(true).await;
+                    info!("Server stopped.");
+                } else {
+                    info!("Server is not running.");
                 }
             }
         }
@@ -198,6 +193,8 @@ async fn join_queue(
 
     let student_request = StudentRequest::new(student_info);
 
+    info!("Student request received: {:?}", student_request);
+
     match handle_join(data, student_request.clone()) {
         Ok(_) => {
             // send to /waiting?id
@@ -241,7 +238,7 @@ async fn get_position(
     data: web::Data<Arc<Mutex<Queue>>>,
     query: web::Query<IdQuery>,
 ) -> HttpResponse {
-    println!("Position requested for ID: {}", query.id);
+    info!("Position requested for ID: {}", query.id);
     match handle_position(data, query.id.clone()) {
         Ok(position) => HttpResponse::Ok().content_type("text/html").body(position),
         Err(_) => HttpResponse::InternalServerError()
