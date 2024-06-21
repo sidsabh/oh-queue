@@ -1,69 +1,126 @@
-use crate::utils::*;
 use actix_files as fs;
 
 use crate::queue::*;
 use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web::dev;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
+use tokio::select;
 
+pub enum ServerControlMessage {
+    Start,
+    Stop,
+}
 const ADDRESS: &str = "0.0.0.0";
-
+use std::io;
 /// This function starts the server and defines the routes for the web application.
-pub async fn start_server(queue_ref: Arc<Mutex<Queue>>) -> std::io::Result<()> {
-    let mut port = 3000;
+use tokio::sync::{oneshot, mpsc};
+pub async fn http_server(
+    queue_ref: Arc<Mutex<Queue>>,
+    mut rx: mpsc::Receiver<ServerControlMessage>,
+) -> io::Result<()> {
+    let mut server_handle: Option<oneshot::Sender<()>> = None;
 
-    let queue_data = web::Data::new(queue_ref.clone());
-    loop {
-        let queue_data = queue_data.clone();
-        let server = HttpServer::new(move || {
-            App::new()
-                .app_data(queue_data.clone())
-                .route(
-                    "/",
-                    web::get().to(|| async {
-                        let html = std::fs::read_to_string("src/public/index.html")
-                            .expect("error reading index.html");
-                        HttpResponse::Ok().content_type("text/html").body(html)
-                    }),
-                )
-                .route(
-                    "/waiting",
-                    web::get().to(|| async {
-                        let html = std::fs::read_to_string("src/public/waiting.html")
-                            .expect("error reading waiting.html");
-                        HttpResponse::Ok().content_type("text/html").body(html)
-                    }),
-                )
-                .route(
-                    "/done",
-                    web::get().to(|| async {
-                        let html = std::fs::read_to_string("src/public/done.html")
-                            .expect("error reading done.html");
-                        HttpResponse::Ok().content_type("text/html").body(html)
-                    }),
-                )
-                .service(fs::Files::new("/static", "src/public").show_files_listing())
-                .route("/api/join", web::post().to(join_queue))
-                .route("/api/leave", web::post().to(leave_queue))
-                .route("/api/position", web::get().to(get_position))
-        });
+    while let Some(msg) = rx.recv().await {  // Make sure to await here!
+        match msg {
+            ServerControlMessage::Start => {
+                if server_handle.is_none() {
+                    let mut port = 3000;
+                    let max_port = 3050;
 
-        match server
-            .bind(format!("{}:{}", ADDRESS, port))
-            .map(|s| s.run())
-        {
-            Ok(server) => {
-                println!("Serving on {}:{}", ADDRESS, port);
-                log_server_details(port).await?; // Log server details to a file
-                server.await?;
-                return Ok(());
+                    while port <= max_port {
+                        let q = web::Data::new(queue_ref.clone());
+                        let server = HttpServer::new(move || {
+                            App::new()
+                                .app_data(q.clone())
+                                .route(
+                                    "/",
+                                    web::get().to(|| async {
+                                        HttpResponse::Ok().content_type("text/html").body(
+                                            std::fs::read_to_string("src/public/index.html")
+                                                .unwrap_or_else(|_| {
+                                                    "Error loading page".to_string()
+                                                }),
+                                        )
+                                    }),
+                                )
+                                .route(
+                                    "/waiting",
+                                    web::get().to(|| async {
+                                        HttpResponse::Ok().content_type("text/html").body(
+                                            std::fs::read_to_string("src/public/waiting.html")
+                                                .unwrap_or_else(|_| {
+                                                    "Error loading page".to_string()
+                                                }),
+                                        )
+                                    }),
+                                )
+                                .route(
+                                    "/done",
+                                    web::get().to(|| async {
+                                        HttpResponse::Ok().content_type("text/html").body(
+                                            std::fs::read_to_string("src/public/done.html")
+                                                .unwrap_or_else(|_| {
+                                                    "Error loading page".to_string()
+                                                }),
+                                        )
+                                    }),
+                                )
+                                .service(
+                                    fs::Files::new("/static", "src/public").show_files_listing(),
+                                )
+                                .route("/api/join", web::post().to(join_queue))
+                                .route("/api/leave", web::post().to(leave_queue))
+                                .route("/api/position", web::get().to(get_position))
+                        });
+
+                        match server
+                            .bind(format!("{}:{}", ADDRESS, port))
+                            .map(|s| s.run())
+                        {
+                            Ok(server) => {
+                                log_server_details(port).expect("Failed to log server details");
+                                println!("Serving on {}:{}", ADDRESS, port);
+                                let (tx_stop, rx_stop) = oneshot::channel();
+                                server_handle = Some(tx_stop);
+
+                                tokio::spawn(async move {
+                                    select! {
+                                        _ = server => {
+
+                                        },
+                                        _ = rx_stop => {
+                                        },
+                                    }
+                                });
+                                break;
+                            }
+                            Err(_) => port += 1, // Increment the port if binding fails
+                        }
+                    }
+
+                    print!("Server is running on port {}", port);
+
+                    if server_handle.is_none() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::AddrInUse,
+                            "No available ports to bind to.",
+                        ));
+                    }
+                } else {
+                    println!("Server is already running.");
+                }
             }
-            Err(_) => port += 1, // Increment the port if binding fails
+            ServerControlMessage::Stop => {
+                if let Some(stop_tx) = server_handle.take() {
+                    let _ = stop_tx.send(());
+                }
+            }
         }
-
-        
     }
+
+    Ok(())
 }
 
 use std::fs::{create_dir_all, metadata, set_permissions};
@@ -71,7 +128,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
-async fn log_server_details(port: u16) -> std::io::Result<()> {
+fn log_server_details(port: u16) -> std::io::Result<()> {
     // Get the hostname
     let output = Command::new("hostname").output()?;
     let hostname = String::from_utf8_lossy(&output.stdout);
@@ -106,9 +163,9 @@ async fn log_server_details(port: u16) -> std::io::Result<()> {
         "Connect via:\n\
         \tssh -N -L {}:{}:3000 <your-username>@<your-machine>\n\
         Visit http://localhost:3000 to join the office hours queue.\n",
-        port, hostname.trim()
+        port,
+        hostname.trim()
     );
-    
 
     file.set_len(0)?;
     file.write_all(log_entry.as_bytes())?;
